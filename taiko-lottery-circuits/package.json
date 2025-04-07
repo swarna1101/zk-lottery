@@ -1,0 +1,15 @@
+{
+  "name": "taiko-lottery-zk",
+  "version": "1.0.0",
+  "description": "ZK-based lottery application",
+  "main": "utils.js",
+  "scripts": {
+    "setup": "bash setup.sh",
+    "test": "node utils.js"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.0"
+  }
+}
