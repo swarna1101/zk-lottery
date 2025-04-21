@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment
+.env
+
+# Hardhat
+cache/
+artifacts/
+typechain-types/
+
+# Circuit compilation outputs
+*.r1cs
+*.sym
+*.wasm
+*.zkey
+verification_key.json
+*_js/
+*.ptau
+
+# Coverage
+coverage/
+coverage.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Misc
+.DS_Store
+*.pem
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local 

@@ -1,0 +1,37 @@
+{
+  "name": "zk-lottery",
+  "version": "1.0.0",
+  "description": "A decentralized lottery system built on Taiko using zero-knowledge proofs for privacy.",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js --network taiko-testnet",
+    "compile:circuits": "cd circuits/lottery && circom ticket_ownership.circom --r1cs --wasm --sym",
+    "setup:circuits": "snarkjs powersoftau new bn128 12 pot12_0000.ptau -v && snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name='First contribution' -v",
+    "generate:verifier": "snarkjs zkey export solidityverifier verification_key.zkey verifier.sol",
+    "clean": "rm -rf cache artifacts typechain-types",
+    "lint": "solhint 'contracts/**/*.sol'",
+    "prettier": "prettier --write 'contracts/**/*.sol'"
+  },
+  "keywords": [
+    "zk",
+    "lottery",
+    "taiko",
+    "blockchain"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "circomlibjs": "^0.1.7",
+    "dotenv": "^16.0.3",
+    "hardhat": "^2.19.4",
+    "prettier": "^2.8.8",
+    "prettier-plugin-solidity": "^1.1.3",
+    "solhint": "^3.4.1"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5"
+  }
+}
