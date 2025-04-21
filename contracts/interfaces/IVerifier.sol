@@ -8,4 +8,4 @@ interface IVerifier {
         uint[2] calldata c,
         uint[2] calldata input
     ) external view returns (bool);
-} 
+}
