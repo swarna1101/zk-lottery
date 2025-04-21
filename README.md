@@ -70,6 +70,4 @@ npm run generate:verifier
 - TaikoLottery: [0x6DBe6f02628BeaB47c4d7f648BD8b10269bb8ad3](https://hekla.taikoscan.io/address/0x6dbe6f02628beab47c4d7f648bd8b10269bb8ad3)
 - Entropy Provider: [0x52DeaA1c84233F7bb8C8A45baeDE41091c616506](https://hekla.taikoscan.io/address/0x52DeaA1c84233F7bb8C8A45baeDE41091c616506)
 
-## License
 
-MIT

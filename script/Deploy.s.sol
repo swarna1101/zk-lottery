@@ -8,23 +8,23 @@ contract DeployScript is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address entropyProvider = vm.envOr("PYTH_ENTROPY_PROVIDER", address(0x52DeaA1c84233F7bb8C8A45baeDE41091c616506));
-        
+
         // Set high priority fee for faster processing
         vm.txGasPrice(50 gwei);
-        
+
         vm.startBroadcast(deployerPrivateKey);
-        
+
         // Deploy the contract
         TaikoLottery lottery = new TaikoLottery(
             entropyProvider,
             entropyProvider,
-            msg.sender,  // fee recipient
-            500,        // fee basis points
-            address(0)  // zero address for token
+            msg.sender, // fee recipient
+            500, // fee basis points
+            address(0) // zero address for token
         );
 
         console.log("TaikoLottery deployed to:", address(lottery));
-        
+
         vm.stopBroadcast();
     }
-} 
+}
