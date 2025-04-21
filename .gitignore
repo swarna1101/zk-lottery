@@ -4,11 +4,13 @@ package-lock.json
 
 # Environment
 .env
+.env.local
+.env.*.local
 
-# Hardhat
+# Foundry
+out/
 cache/
-artifacts/
-typechain-types/
+broadcast/
 
 # Circuit compilation outputs
 *.r1cs
@@ -34,14 +36,10 @@ logs
 *.log
 npm-debug.log*
 
-# Build outputs
+# Build
 dist/
 build/
 
 # Misc
 .DS_Store
-*.pem
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local 
+*.pem 

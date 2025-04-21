@@ -1,110 +1,75 @@
-# Taiko ZK Lottery
+# ZK Lottery
 
 A decentralized lottery system built on Taiko using zero-knowledge proofs for privacy.
 
-## Project Structure
+## Overview
 
-```
-zk-lottery/
-├── contracts/           # Smart contracts
-│   ├── core/           # Main contract implementations
-│   │   └── TaikoLottery.sol
-│   └── interfaces/     # Contract interfaces
-│       ├── IERC20.sol
-│       └── IVerifier.sol
-├── circuits/           # ZK circuit implementations
-│   └── lottery/
-│       └── ticket_ownership.circom
-├── scripts/           # Deployment and test scripts
-│   ├── deploy.js
-│   └── test.js
-├── test/             # Test files
-├── hardhat.config.js # Hardhat configuration
-├── .env              # Environment configuration
-└── package.json      # Project dependencies
-```
-
-## Features
-
-- Multi-round lottery system
-- Private ticket ownership using ZK proofs
-- Pyth VRF for random winner selection
-- TAIKO token integration
-- Anti-double-spending mechanism
-- Time-based round management
+This project implements a privacy-preserving lottery system on the Taiko network. It uses zero-knowledge proofs to allow users to participate in lotteries while keeping their ticket numbers private until the reveal phase.
 
 ## Prerequisites
 
-- Node.js (v16 or later)
-- Taiko testnet access
-- TAIKO tokens for testing
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- Node.js and npm
+- [Circom](https://docs.circom.io/getting-started/installation/) (for ZK circuit compilation)
 
-## Setup
+## Installation
 
-1. Install dependencies:
+1. Clone the repository:
 ```bash
-npm install
+git clone https://github.com/yourusername/zk-lottery.git
+cd zk-lottery
 ```
 
-2. Configure environment:
-- Copy `.env.example` to `.env`
-- Add your private key
-- Set Pyth Entropy contract address
-- Set Pyth provider address
-- Set fee recipient address
-
-3. Compile and setup:
+2. Install dependencies:
 ```bash
-# Compile ZK circuits
-npm run compile:circuits
+npm install
+forge install
+```
 
-# Setup ZK proving system
-npm run setup:circuits
-
-# Generate verifier contract
-npm run generate:verifier
-
-# Compile contracts
-npm run compile
+3. Copy the environment file and configure it:
+```bash
+cp .env.example .env
 ```
 
 ## Development
 
+### Build
 ```bash
-# Run tests
-npm run test
-
-# Deploy to Taiko testnet
-npm run deploy
-
-# Lint contracts
-npm run lint
-
-# Format contracts
-npm run prettier
-
-# Clean build files
-npm run clean
+forge build
 ```
 
-## Smart Contract Architecture
+### Test
+```bash
+forge test
+```
 
-1. **TaikoLottery.sol**
-   - Multi-round lottery management
-   - Ticket purchase handling
-   - Prize distribution
-   - ZK proof verification
+### Deploy
+```bash
+forge script script/Deploy.s.sol:DeployScript --rpc-url $TAIKO_RPC_URL --broadcast --verify
+```
 
-2. **ZK Circuit (ticket_ownership.circom)**
-   - Ticket ownership verification
-   - Time window validation
-   - Double-spending prevention
+### Circuit Development
 
-## Security Features
+1. Compile the circuits:
+```bash
+npm run compile:circuits
+```
 
-- Reentrancy protection
-- Access control
-- Nullifier system
-- Time-based validations
-- Commitment uniqueness
+2. Setup the circuits:
+```bash
+npm run setup:circuits
+```
 
+3. Generate the Solidity verifier:
+```bash
+npm run generate:verifier
+```
+
+## Contract Addresses
+
+- TaikoLottery: [0x6DBe6f02628BeaB47c4d7f648BD8b10269bb8ad3](https://hekla.taikoscan.io/address/0x6dbe6f02628beab47c4d7f648bd8b10269bb8ad3)
+- Entropy Provider: [0x52DeaA1c84233F7bb8C8A45baeDE41091c616506](https://hekla.taikoscan.io/address/0x52DeaA1c84233F7bb8C8A45baeDE41091c616506)
+
+## License
+
+MIT
