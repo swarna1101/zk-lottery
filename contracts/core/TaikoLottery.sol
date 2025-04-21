@@ -60,7 +60,7 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         address _feeRecipient,
         uint256 _feePercent,
         address _verifier
-    ) Ownable(msg.sender) {
+    ) {
         require(_feePercent <= 10000, "Fee percent too high");
         entropy = IEntropy(_entropy);
         entropyProvider = _entropyProvider;
