@@ -4,16 +4,23 @@ pragma solidity ^0.8.20;
 import {IEntropyConsumer} from "@pythnetwork/entropy-sdk-solidity/IEntropyConsumer.sol";
 import {IEntropy} from "@pythnetwork/entropy-sdk-solidity/IEntropy.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/Timers.sol";
 import "../interfaces/IERC20.sol";
 import "../interfaces/IVerifier.sol";
 
-contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
+contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard, Pausable {
+    using Timers for Timers.Timestamp;
+
     IERC20 public constant TAIKO_TOKEN = IERC20(0x88f6D29C94E933F7C9Abf8821B081e1804579283);
     uint256 public constant TICKET_PRICE = 1 ether;
+    uint256 public constant MIN_ROUND_DURATION = 100; // blocks
+    uint256 public constant MAX_ROUND_DURATION = 1000; // blocks
+    uint256 public constant WINNER_SELECTION_DELAY = 10; // blocks
 
-    IEntropy private entropy;
-    address private entropyProvider;
+    IEntropy private immutable entropy;
+    address private immutable entropyProvider;
     address public feeRecipient;
     uint256 public feePercent;
     address public verifier;
@@ -30,12 +37,14 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         bool isFinished;
         uint256 startTime;
         uint256 endTime;
+        uint256 winnerSelectionBlock;
     }
 
     uint256 public currentRoundId;
     mapping(uint256 => Round) public rounds;
+    mapping(bytes32 => bool) public globalUsedCommitments;
     uint64 public entropySequenceNumber;
-    bool public paused;
+    Timers.Timestamp private roundTimer;
 
     event RoundStarted(uint256 indexed roundId, uint256 endBlock);
     event TicketPurchased(uint256 indexed roundId, uint256 indexed ticketId, bytes32 commitment);
@@ -43,11 +52,6 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
     event PrizeClaimed(uint256 indexed roundId, address indexed winner, uint256 amount);
     event FeesDistributed(uint256 indexed roundId, address indexed recipient, uint256 amount);
     event RoundReset(uint256 indexed roundId);
-
-    modifier whenNotPaused() {
-        require(!paused, "Contract is paused");
-        _;
-    }
 
     modifier onlyEntropyProvider() {
         require(msg.sender == entropyProvider, "Only entropy provider");
@@ -70,6 +74,7 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
     }
 
     function startNewRound(uint256 durationBlocks) external onlyOwner whenNotPaused {
+        require(durationBlocks >= MIN_ROUND_DURATION && durationBlocks <= MAX_ROUND_DURATION, "Invalid duration");
         require(rounds[currentRoundId].isFinished || currentRoundId == 0, "Current round not finished");
 
         currentRoundId++;
@@ -78,6 +83,9 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         round.isActive = true;
         round.startTime = block.timestamp;
         round.endTime = block.timestamp + (durationBlocks * 12);
+        round.winnerSelectionBlock = round.endBlock + WINNER_SELECTION_DELAY;
+
+        roundTimer.setDeadline(uint64(round.endTime));
 
         emit RoundStarted(currentRoundId, round.endBlock);
     }
@@ -86,10 +94,12 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         Round storage round = rounds[currentRoundId];
         require(round.isActive, "Round not active");
         require(block.number < round.endBlock, "Round ended");
-        require(!round.usedCommitments[commitment], "Commitment already used");
+        require(!round.usedCommitments[commitment], "Commitment already used in round");
+        require(!globalUsedCommitments[commitment], "Commitment already used globally");
         require(TAIKO_TOKEN.transferFrom(msg.sender, address(this), TICKET_PRICE), "Payment failed");
 
         round.usedCommitments[commitment] = true;
+        globalUsedCommitments[commitment] = true;
         round.ticketCommitments.push(commitment);
         round.ticketCount++;
         round.prizePool += TICKET_PRICE;
@@ -97,10 +107,11 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         emit TicketPurchased(currentRoundId, round.ticketCount - 1, commitment);
     }
 
-    function endRound() external onlyOwner nonReentrant {
+    function endRound() external onlyOwner nonReentrant whenNotPaused {
         Round storage round = rounds[currentRoundId];
         require(round.isActive, "Round not active");
         require(block.number >= round.endBlock, "Round not ended");
+        require(block.number >= round.winnerSelectionBlock, "Winner selection delay not passed");
         require(round.ticketCount > 0, "No tickets sold");
 
         uint256 fee = entropy.getFee(entropyProvider);
@@ -128,7 +139,7 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         uint256[2][2] calldata b,
         uint256[2] calldata c,
         uint256[2] calldata input
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         Round storage round = rounds[roundId];
         require(round.isFinished, "Round not finished");
         require(roundId <= currentRoundId, "Invalid round");
@@ -153,11 +164,12 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         emit PrizeClaimed(roundId, msg.sender, winnerAmount);
     }
 
-    function verifyZKProof(bytes memory zkProof, uint256 ticketIndex, uint256 roundId, uint256[2] calldata input)
-        internal
-        view
-        returns (bool)
-    {
+    function verifyZKProof(
+        bytes memory zkProof,
+        uint256 ticketIndex,
+        uint256 roundId,
+        uint256[2] calldata input
+    ) internal view returns (bool) {
         Round storage round = rounds[roundId];
         bytes32 commitment = round.ticketCommitments[ticketIndex];
 
@@ -170,16 +182,25 @@ contract TaikoLottery is IEntropyConsumer, Ownable, ReentrancyGuard {
         return IVerifier(verifier).verifyProof(_a, _b, _c, input);
     }
 
-    function getEntropy() internal view override returns (address) {
-        return address(entropy);
+    function resetRound(uint256 roundId) external onlyOwner {
+        require(roundId < currentRoundId, "Cannot reset current round");
+        Round storage round = rounds[roundId];
+        require(round.isFinished, "Round not finished");
+        
+        // Clear round data but keep historical data
+        round.isActive = false;
+        round.isFinished = true;
+        round.prizePool = 0;
+        
+        emit RoundReset(roundId);
     }
 
     function pause() external onlyOwner {
-        paused = true;
+        _pause();
     }
 
     function unpause() external onlyOwner {
-        paused = false;
+        _unpause();
     }
 
     function setFeeRecipient(address _feeRecipient) external onlyOwner {
