@@ -1,142 +1,166 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { currentRound, ticketPrice, isConnected, errorMessage, initializeContract, startNewRound, buyTicket, endRound, userAddress, isOwner, connectWithPrivateKey, connectionType } from './lib/stores/contract';
-import { utils } from 'ethers';
+import { userAddress, isOwner, roundInfo, errorMessage, isConnected, connectionType, currentRoundId, ticketPrice } from './lib/stores/contract';
+import { initializeContract, connectWithPrivateKey, getContractInstance, startNewRound, buyTicket, endRound } from './lib/stores/contract';
+import { ethers } from 'ethers';
+import type { RoundInfo } from './lib/stores/contract';
 
 let durationBlocks = 100;
 let ticketCount = 1;
 let loading = false;
 let privateKey = '';
 let showPrivateKey = false;
-  
+let currentBlock = 0;
+let myTickets: Array<{roundId: string, index: number, commitment: string}> = [];
+let showPrivateKeyInput = false;
+
 $: connected = $isConnected;
-$: price = $ticketPrice;
-$: round = $currentRound;
+$: round = $currentRoundId;
+$: roundData = $roundInfo;
 $: error = $errorMessage;
 $: address = $userAddress;
+$: price = $ticketPrice ? ethers.utils.parseEther($ticketPrice) : ethers.utils.parseEther("0");
 $: owner = $isOwner;
 $: connType = $connectionType;
+$: totalPrice = price.mul(ticketCount);
+$: blocksRemaining = roundData?.endBlock ? roundData.endBlock.sub(currentBlock).toNumber() : 0;
 
-onMount(async () => {
-  if (typeof window.ethereum !== 'undefined') {
-    try {
-      await initializeContract();
-    } catch (error) {
-      // Error is already handled in the contract store
+onMount(() => {
+  // Load stored tickets
+  const storedTickets = JSON.parse(localStorage.getItem('myTickets') || '[]');
+  myTickets = storedTickets;
+  
+  // Initialize contract
+  initializeContract();
+
+  // Update current block number from localStorage
+  const updateCurrentBlock = () => {
+    const blockNum = localStorage.getItem('currentBlock');
+    if (blockNum) {
+      currentBlock = parseInt(blockNum);
     }
-  }
+  };
+
+  // Update block number every second
+  updateCurrentBlock();
+  const interval = setInterval(updateCurrentBlock, 1000);
+
+  return () => clearInterval(interval);
 });
 
-async function handleConnectWithPrivateKey() {
-  if (!privateKey) {
-    errorMessage.set('Please enter a private key');
-    return;
+function loadMyTickets() {
+  const tickets = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('ticket_')) {
+      const ticket = JSON.parse(localStorage.getItem(key) || '{}');
+      tickets.push({
+        roundId: ticket.roundId,
+        index: ticket.index,
+        commitment: ticket.commitment
+      });
+    }
   }
-  
+  myTickets = tickets;
+}
+
+async function handlePrivateKeyConnect() {
+  if (!privateKey) return;
+  loading = true;
   try {
-    loading = true;
     await connectWithPrivateKey(privateKey);
+  } catch (e) {
+    console.error(e);
   } finally {
     loading = false;
   }
 }
 
 async function handleStartNewRound() {
-  if (!connected) {
-    try {
-      loading = true;
-      await initializeContract();
-    } catch (error) {
-      return;
-    } finally {
-      loading = false;
-    }
-  }
-  
-  if (!owner) {
-    errorMessage.set('Only owner can start a new round');
-    return;
-  }
-  
+  if (!roundData) return;
+  loading = true;
   try {
-    loading = true;
-    await startNewRound(durationBlocks);
+    const success = await startNewRound(durationBlocks);
+    if (!success) {
+      throw new Error('Failed to start new round');
+    }
+  } catch (err: any) {
+    console.error(err);
+    error = err?.message || 'Failed to start new round';
   } finally {
     loading = false;
   }
 }
 
 async function handleBuyTicket() {
-  if (!connected) {
-    try {
-      loading = true;
-      await initializeContract();
-    } catch (error) {
-      return;
-    } finally {
-      loading = false;
-    }
-  }
-  
-  if (!round || round.isEnded) {
-    errorMessage.set('No active round available');
-    return;
-  }
-  
+  if (!roundData) return;
+  loading = true;
   try {
-    loading = true;
-    const randomValue = utils.randomBytes(32);
-    const commitment = utils.keccak256(randomValue);
-    
-    const ticketData = {
-      roundId: round.id.toString(),
-      randomValue: utils.hexlify(randomValue),
-      commitment
-    };
-    
+    const commitment = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(Date.now().toString()));
     const success = await buyTicket(commitment);
     if (success) {
-      localStorage.setItem(`ticket_${round.id}_${commitment}`, JSON.stringify(ticketData));
+      // Store ticket info in local storage
+      const storedTickets = JSON.parse(localStorage.getItem('myTickets') || '[]');
+      storedTickets.push({
+        roundId: round.toString(),
+        commitment,
+        index: roundData.ticketCount.toNumber()
+      });
+      localStorage.setItem('myTickets', JSON.stringify(storedTickets));
+      myTickets = storedTickets;
+    } else {
+      throw new Error('Failed to buy ticket');
     }
+  } catch (err: any) {
+    console.error(err);
+    error = err?.message || 'Failed to buy ticket';
   } finally {
     loading = false;
   }
 }
 
 async function handleEndRound() {
-  if (!connected) {
-    try {
-      loading = true;
-      await initializeContract();
-    } catch (error) {
-      return;
-    } finally {
-      loading = false;
+  if (!roundData) return;
+  loading = true;
+  try {
+    const success = await endRound();
+    if (!success) {
+      throw new Error('Failed to end round');
     }
+  } catch (err: any) {
+    console.error(err);
+    error = err?.message || 'Failed to end round';
+  } finally {
+    loading = false;
   }
-  
-  if (!round || round.isEnded) {
-    errorMessage.set('No active round to end');
-    return;
-  }
+}
+
+async function handleClaimPrize() {
+  if (!roundData) return;
   
   try {
     loading = true;
-    await endRound();
+    // TODO: Implement ZK proof generation and prize claiming
+    errorMessage.set('Prize claiming will be implemented in the next update');
   } finally {
     loading = false;
   }
 }
 </script>
 
-<main class="container">
+<main class="container mx-auto p-4">
   <h1>Taiko Lottery</h1>
 
   <div class="card">
     {#if connected}
       <div class="wallet-status connected">
         <span class="dot"></span>
-        {address.slice(0, 6)}...{address.slice(-4)}
+        {#if $userAddress !== null && $userAddress !== undefined}
+          {$userAddress.slice(0, 6)}...{$userAddress.slice(-4)}
+          {#if $isOwner}
+            <span class="ml-2 text-green-500">(Owner)</span>
+          {/if}
+        {/if}
         <span class="connection-type">({connType})</span>
       </div>
     {:else}
@@ -168,7 +192,7 @@ async function handleEndRound() {
             </div>
             <button 
               class="primary"
-              on:click={handleConnectWithPrivateKey}
+              on:click={handlePrivateKeyConnect}
               disabled={loading || !privateKey}
             >
               {#if loading}Connecting...{:else}Connect with Private Key{/if}
@@ -179,113 +203,82 @@ async function handleEndRound() {
     {/if}
 
     <div class="lottery-info">
-      {#if round}
-        <div class="info-grid">
-          <div class="info-item">
-            <h3>Round</h3>
-            <p>{round.id?.toString() || '0'}</p>
-          </div>
-          <div class="info-item">
-            <h3>Price</h3>
-            <p>{price || '0'} ETH</p>
-          </div>
-          <div class="info-item">
-            <h3>Tickets</h3>
-            <p>{round.ticketCount?.toString() || '0'}</p>
-          </div>
-          <div class="info-item">
-            <h3>Prize Pool</h3>
-            <p>{utils.formatEther(round.prizePool || '0')} ETH</p>
-          </div>
+      {#if roundData}
+        <div class="info-item">
+          <h3>End Block</h3>
+          <p>{parseInt(roundData.endBlock)}</p>
         </div>
-        <div class="status-bar">
-          <div class="status-indicator {round.isEnded ? 'ended' : 'active'}">
-            {round.isEnded ? 'Round Ended' : 'Round Active'}
-          </div>
-          {#if round.isEnded}
-            <div class="winning-number">
-              Winning Index: {round.winningIndex?.toString()}
-            </div>
-          {/if}
+        <div class="info-item">
+          <h3>Tickets Sold</h3>
+          <p>{parseInt(roundData.ticketCount)}</p>
         </div>
+        <div class="info-item">
+          <h3>Prize Pool</h3>
+          <p>{roundData.prizePool} ETH</p>
+        </div>
+        {#if roundData.isFinished}
+          <div class="info-item">
+            <h3>Winning Ticket</h3>
+            <p>{parseInt(roundData.winningTicketIndex)}</p>
+          </div>
+        {/if}
       {:else}
-        <div class="info-grid">
-          <div class="info-item">
-            <h3>Round</h3>
-            <p>-</p>
-          </div>
-          <div class="info-item">
-            <h3>Price</h3>
-            <p>-</p>
-          </div>
-          <div class="info-item">
-            <h3>Tickets</h3>
-            <p>-</p>
-          </div>
-          <div class="info-item">
-            <h3>Prize Pool</h3>
-            <p>-</p>
-          </div>
-        </div>
+        <p>Loading lottery information...</p>
       {/if}
     </div>
 
-    <div class="controls">
-      {#if owner}
-        <div class="control-section">
-          <h3>Admin Controls</h3>
-          <div class="input-group">
-            <label for="duration">Round Duration (blocks)</label>
-            <input
-              id="duration"
-              type="number"
-              bind:value={durationBlocks}
-              min="1"
-              disabled={loading}
-            />
-            <button 
-              class="primary" 
-              on:click={handleStartNewRound}
-              disabled={loading || (round && !round.isEnded)}
-            >
-              {#if loading}Starting...{:else}Start New Round{/if}
-            </button>
-          </div>
-        </div>
+    <div class="actions">
+      {#if $isOwner && !roundData.isActive}
+        <button 
+          on:click={() => handleStartNewRound()}
+          disabled={loading}
+          class="primary"
+        >
+          {loading ? 'Starting...' : 'Start New Round'}
+        </button>
       {/if}
 
-      <div class="control-section">
-        <h3>Lottery Controls</h3>
-        <div class="input-group">
-          <label for="tickets">Number of Tickets</label>
-          <input
-            id="tickets"
-            type="number"
-            bind:value={ticketCount}
-            min="1"
-            disabled={loading || !round || round.isEnded}
-          />
-          <button 
-            class="primary"
-            on:click={handleBuyTicket}
-            disabled={loading || !round || round.isEnded}
-          >
-            {#if loading}Buying...{:else}Buy Tickets{/if}
-          </button>
-        </div>
+      {#if roundData.isActive}
         <button 
-          class="secondary"
-          on:click={handleEndRound}
-          disabled={loading || !round || round.isEnded}
+          on:click={() => handleBuyTicket()}
+          disabled={loading}
+          class="primary"
         >
-          {#if loading}Ending...{:else}End Round{/if}
+          {loading ? 'Buying...' : 'Buy Ticket'}
         </button>
-      </div>
+      {/if}
+
+      {#if $isOwner && roundData.isActive}
+        <button 
+          on:click={() => handleEndRound()}
+          disabled={loading}
+          class="secondary"
+        >
+          {loading ? 'Ending...' : 'End Round'}
+        </button>
+      {/if}
     </div>
 
     {#if error}
-      <div class="error" role="alert">
+      <div class="error">
         {error}
+      </div>
+    {/if}
+
+    {#if myTickets.length > 0}
+      <div class="my-tickets">
+        <h3>My Tickets</h3>
+        <div class="ticket-list">
+          {#each myTickets as ticket}
+            <div class="ticket">
+              <span>Round #{ticket.roundId}</span>
+              <span>Ticket #{ticket.index}</span>
+              {#if roundData?.isFinished && roundData?.winningIndex?.toString() === ticket.index.toString()}
+                <span class="winner">Winner! 🎉</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
@@ -329,141 +322,67 @@ async function handleEndRound() {
   }
 
   .lottery-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
     margin-bottom: 2rem;
   }
 
-  .info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-
   .info-item {
-    background: rgba(255, 255, 255, 0.05);
+    background: #f5f5f5;
     padding: 1rem;
-    border-radius: 12px;
-    text-align: center;
+    border-radius: 8px;
   }
 
   .info-item h3 {
+    margin: 0;
     font-size: 0.9rem;
-    opacity: 0.7;
-    margin-bottom: 0.5rem;
+    color: #666;
   }
 
   .info-item p {
+    margin: 0.5rem 0 0;
     font-size: 1.2rem;
-    font-weight: 600;
+    font-weight: bold;
   }
 
-  .status-bar {
+  .actions {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 1rem;
-  }
-
-  .status-indicator {
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
-  .status-indicator.active {
-    background: rgba(46, 204, 113, 0.2);
-    color: #2ecc71;
-  }
-
-  .status-indicator.ended {
-    background: rgba(231, 76, 60, 0.2);
-    color: #e74c3c;
-  }
-
-  .winning-number {
-    font-size: 0.9rem;
-    opacity: 0.8;
-  }
-
-  .controls {
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
-  }
-
-  .control-section {
-    background: rgba(255, 255, 255, 0.05);
-    padding: 1.5rem;
-    border-radius: 12px;
-  }
-
-  .control-section h3 {
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
-  }
-
-  .input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-
-  input {
-    padding: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    color: white;
-    font-size: 1rem;
-  }
-
-  input:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+    gap: 1rem;
+    flex-wrap: wrap;
   }
 
   button {
     padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-size: 1rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  button.primary {
-    background: #ff1493;
-    color: white;
     border: none;
-  }
-
-  button.secondary {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  button:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(255, 20, 147, 0.4);
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
-    transform: none !important;
-    box-shadow: none !important;
+  }
+
+  button.primary {
+    background: #3b82f6;
+    color: white;
+  }
+
+  button.secondary {
+    background: #ef4444;
+    color: white;
   }
 
   .error {
     margin-top: 1rem;
     padding: 1rem;
-    border-radius: 8px;
-    background: rgba(255, 20, 147, 0.1);
-    border: 1px solid rgba(255, 20, 147, 0.3);
-    color: #ff69b4;
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    border-radius: 4px;
+    color: #b91c1c;
   }
 
   .connect-section {
@@ -509,5 +428,79 @@ async function handleEndRound() {
     font-size: 0.8rem;
     opacity: 0.7;
     margin-left: 0.5rem;
+  }
+
+  .status {
+    font-size: 0.8rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    margin-top: 0.5rem;
+  }
+
+  .status.active {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+  }
+
+  .status.ended {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+  }
+
+  .blocks-remaining {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    text-align: center;
+    margin-top: 1rem;
+  }
+
+  .no-round {
+    text-align: center;
+    padding: 2rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+  }
+
+  .help-text {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    margin-top: 0.5rem;
+  }
+
+  .my-tickets {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+  }
+
+  .ticket-list {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .ticket {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+  }
+
+  .winner {
+    color: #f1c40f;
+    font-weight: bold;
+  }
+
+  .highlight {
+    background: #f1c40f;
+    color: black;
+  }
+
+  button.highlight:hover:not(:disabled) {
+    background: #f39c12;
+    box-shadow: 0 5px 15px rgba(243, 156, 18, 0.4);
   }
 </style>

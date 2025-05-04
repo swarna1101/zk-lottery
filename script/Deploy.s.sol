@@ -16,11 +16,11 @@ contract DeployScript is Script {
 
         // Deploy the contract
         TaikoLottery lottery = new TaikoLottery(
+            entropyAddress,
             entropyProvider,
-            entropyProvider,
-            msg.sender, // fee recipient
-            500, // fee basis points
-            address(0) // zero address for token
+            feeRecipient,
+            feePercent,
+            verifier
         );
 
         console.log("TaikoLottery deployed to:", address(lottery));
