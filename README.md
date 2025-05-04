@@ -12,7 +12,7 @@ This project implements a privacy-preserving lottery system on the Taiko network
 - Node.js and npm
 - [Circom](https://docs.circom.io/getting-started/installation/) (for ZK circuit compilation)
 
-## Installationsdf
+## Installationsdfdsf
 
 1. Clone the repository:
 ```bash
