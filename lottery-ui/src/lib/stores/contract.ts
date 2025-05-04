@@ -1,669 +1,173 @@
-import { writable, get } from 'svelte/store';
-import { ethers } from 'ethers';
+import { writable, type Writable } from 'svelte/store';
+import { ethers, type BigNumber } from 'ethers';
+import type { JsonRpcProvider, Web3Provider } from '@ethersproject/providers';
+import type { Contract } from '@ethersproject/contracts';
+import { contractAbi } from './contractAbi';
 
 // Define contract interface
-interface TaikoLottery extends ethers.Contract {
-    currentRound(): Promise<ethers.BigNumber>;
-    TICKET_PRICE(): Promise<ethers.BigNumber>;
-    getRoundInfo(roundId: ethers.BigNumber): Promise<[ethers.BigNumber, ethers.BigNumber, ethers.BigNumber, ethers.BigNumber, boolean]>;
-    startNewRound(durationBlocks: number): Promise<ethers.ContractTransaction>;
-    buyTicket(commitment: string): Promise<ethers.ContractTransaction>;
-    endRound(): Promise<ethers.ContractTransaction>;
-    claimPrize(
-        roundId: number,
-        a: number[],
-        b: number[][],
-        c: number[],
-        input: number[]
-    ): Promise<ethers.ContractTransaction>;
+export interface TaikoLottery extends Contract {
+    currentRound(): Promise<any>;
+    TICKET_PRICE(): Promise<any>;
+    getRoundInfo(roundId: number): Promise<any>;
+    startNewRound(endBlock: number): Promise<any>;
+    buyTicket(commitment: string): Promise<any>;
+    endRound(): Promise<any>;
+    claimPrize(roundId: number, ticket: string, secret: string): Promise<any>;
     owner(): Promise<string>;
 }
 
-// Contract ABI
-export const contractAbi = [
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_entropy",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_entropyProvider",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_feeRecipient",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_feePercent",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_verifier",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "FeesDistributed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "previousOwner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "OwnershipTransferred",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "winner",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "PrizeClaimed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "winningIndex",
-        "type": "uint256"
-      }
-    ],
-    "name": "RoundClosed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      }
-    ],
-    "name": "RoundReset",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "endBlock",
-        "type": "uint256"
-      }
-    ],
-    "name": "RoundStarted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "roundId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "ticketId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes32",
-        "name": "commitment",
-        "type": "bytes32"
-      }
-    ],
-    "name": "TicketPurchased",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "TAIKO_TOKEN",
-    "outputs": [
-      {
-        "internalType": "contract IERC20",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "TICKET_PRICE",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "_commitment",
-        "type": "bytes32"
-      }
-    ],
-    "name": "buyTicket",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_roundId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256[2]",
-        "name": "a",
-        "type": "uint256[2]"
-      },
-      {
-        "internalType": "uint256[2][2]",
-        "name": "b",
-        "type": "uint256[2][2]"
-      },
-      {
-        "internalType": "uint256[2]",
-        "name": "c",
-        "type": "uint256[2]"
-      },
-      {
-        "internalType": "uint256[2]",
-        "name": "input",
-        "type": "uint256[2]"
-      }
-    ],
-    "name": "claimPrize",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "currentRound",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "endRound",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "entropy",
-    "outputs": [
-      {
-        "internalType": "contract IEntropy",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "entropyProvider",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "feePercent",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "feeRecipient",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_roundId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getRoundInfo",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "endBlock",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "ticketCount",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "prizePool",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "winningIndex",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isEnded",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct TaikoLottery.Round",
-        "name": "",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "renounceOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_roundId",
-        "type": "uint256"
-      }
-    ],
-    "name": "resetRound",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_durationBlocks",
-        "type": "uint256"
-      }
-    ],
-    "name": "startNewRound",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "tickets",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "verifier",
-    "outputs": [
-      {
-        "internalType": "contract IVerifier",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  }
-];
-
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
-const RPC_URL = import.meta.env.VITE_TAIKO_RPC_URL || 'https://rpc.hekla.taiko.xyz';
-
-if (!CONTRACT_ADDRESS) {
-    console.error('Contract address not set in environment variables');
+// Add TTKO token interface
+interface IERC20 extends ethers.Contract {
+    approve(spender: string, amount: ethers.BigNumber, overrides?: ethers.Overrides): Promise<ethers.ContractTransaction>;
+    allowance(owner: string, spender: string): Promise<ethers.BigNumber>;
+    balanceOf(account: string): Promise<ethers.BigNumber>;
 }
 
-// Store for contract state
-export const provider = writable<ethers.providers.JsonRpcProvider | ethers.providers.Web3Provider | null>(null);
-export const signer = writable<ethers.Signer | null>(null);
-export const contract = writable<TaikoLottery | null>(null);
-export const currentRound = writable<{
-    id: ethers.BigNumber;
-    endBlock: ethers.BigNumber;
-    ticketCount: ethers.BigNumber;
-    winningIndex: ethers.BigNumber;
-    prizePool: ethers.BigNumber;
-    isEnded: boolean;
-} | null>(null);
-export const ticketPrice = writable<string>('0');
-export const isConnected = writable<boolean>(false);
-export const errorMessage = writable<string>('');
-export const userAddress = writable<string>('');
+// Environment variables
+const RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.test.taiko.xyz';
+const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+const TTKO_ADDRESS = '0x7b1a3c8f1b1993f8c2ac5ca5d0e16eb0d127be11';
+
+// Stores
+export const userAddress = writable<string | null>(null);
 export const isOwner = writable<boolean>(false);
-export const connectionType = writable<'metamask' | 'privateKey'>('metamask');
+export const errorMessage = writable<string | null>(null);
+export const currentRoundId = writable<number>(0);
+export const ticketPrice = writable<string>('0');
+export const connectionType = writable<'metamask' | 'privateKey' | null>(null);
+export const isConnected = writable<boolean>(false);
 
-let web3Provider: ethers.providers.JsonRpcProvider | ethers.providers.Web3Provider | null = null;
+export interface RoundInfo {
+  endBlock: string;
+  ticketCount: string;
+  prizePool: string;
+  winningTicketIndex: string;
+  isActive: boolean;
+  isFinished: boolean;
+}
+
+export const roundInfo = writable<RoundInfo | null>(null);
+
+let provider: JsonRpcProvider | Web3Provider | null = null;
 let contractInstance: TaikoLottery | null = null;
+let ttkoContract: IERC20 | null = null;
 
-// Initialize contract state
 export async function initializeContract() {
     try {
         if (!window.ethereum) {
             throw new Error('MetaMask not installed');
         }
 
-        if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === '0x0000000000000000000000000000000000000000') {
-            throw new Error('Contract address not set or invalid');
-        }
+        // Clear any existing state
+        disconnectWallet();
 
-        // Request account access
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const currentAccount = accounts[0];
+        // Initialize provider and request accounts
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send('eth_requestAccounts', []);
         
-        // Create Web3Provider and get network
-        web3Provider = new ethers.providers.Web3Provider(window.ethereum);
-        const network = await web3Provider.getNetwork();
+        const signer = provider.getSigner();
+        const address = await signer.getAddress();
         
-        // Check if we're on Taiko Hekla testnet (chain ID: 167009)
-        if (network.chainId !== 167009) {
-            try {
-                await window.ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0x28c31' }], // 167009 in hex
-                });
-            } catch (switchError: any) {
-                // If the chain hasn't been added to MetaMask
-                if (switchError.code === 4902) {
-                    try {
-                        await window.ethereum.request({
-                            method: 'wallet_addEthereumChain',
-                            params: [{
-                                chainId: '0x28c31',
-                                chainName: 'Taiko Hekla Testnet',
-                                nativeCurrency: {
-                                    name: 'ETH',
-                                    symbol: 'ETH',
-                                    decimals: 18
-                                },
-                                rpcUrls: ['https://rpc.hekla.taiko.xyz'],
-                                blockExplorerUrls: ['https://explorer.hekla.taiko.xyz']
-                            }]
-                        });
-                    } catch (addError) {
-                        throw new Error('Failed to add Taiko network to MetaMask');
-                    }
-                } else {
-                    throw new Error('Failed to switch to Taiko network');
-                }
-            }
-            
-            // Refresh provider after network switch
-            web3Provider = new ethers.providers.Web3Provider(window.ethereum);
-        }
-        
-        const web3Signer = web3Provider.getSigner();
-        
-        // Create contract instance
-        contractInstance = new ethers.Contract(CONTRACT_ADDRESS, contractAbi, web3Signer) as TaikoLottery;
+        // Initialize TTKO contract
+        ttkoContract = new ethers.Contract(
+            TTKO_ADDRESS,
+            [
+                "function approve(address spender, uint256 amount) external returns (bool)",
+                "function allowance(address owner, address spender) external view returns (uint256)",
+                "function balanceOf(address account) external view returns (uint256)"
+            ],
+            signer
+        ) as IERC20;
+
+        // Initialize lottery contract
+        contractInstance = new ethers.Contract(
+            contractAddress,
+            contractAbi,
+            signer
+        ) as TaikoLottery;
 
         // Update stores
-        provider.set(web3Provider);
-        signer.set(web3Signer);
-        contract.set(contractInstance);
-        userAddress.set(currentAccount);
-        connectionType.set('metamask');
-
-        // Check if user is contract owner
+        userAddress.set(address);
         const ownerAddress = await contractInstance.owner();
-        isOwner.set(ownerAddress.toLowerCase() === currentAccount.toLowerCase());
+        isOwner.set(ownerAddress.toLowerCase() === address.toLowerCase());
         
-        // Get contract state
+        // Update contract state
         await updateContractState();
-
-        // Setup event listeners for account and chain changes
-        window.ethereum.on('accountsChanged', handleAccountsChanged);
-        window.ethereum.on('chainChanged', handleChainChanged);
-
+        
+        // Set connection status
+        connectionType.set('metamask');
         isConnected.set(true);
         errorMessage.set('');
-    } catch (error: any) {
-        console.error('Failed to initialize contract:', error);
-        isConnected.set(false);
-        errorMessage.set(formatError(error));
-        throw error;
-    }
-}
 
-function formatError(error: any): string {
-    if (error.code === 'CALL_EXCEPTION') {
-        return 'Contract interaction failed. Please make sure you are on the correct network.';
+        // Setup event listeners
+        window.ethereum.on('accountsChanged', handleAccountChange);
+        window.ethereum.on('chainChanged', handleChainChange);
+
+        // Start polling for updates
+        const interval = setInterval(updateContractState, 5000);
+        window.addEventListener('beforeunload', () => clearInterval(interval));
+
+        return true;
+    } catch (error) {
+        console.error('Contract initialization error:', error);
+        errorMessage.set(formatError(error));
+        isConnected.set(false);
+        return false;
     }
-    if (error.code === 'NETWORK_ERROR') {
-        return 'Network error. Please check your connection and try again.';
-    }
-    if (error.message.includes('user rejected')) {
-        return 'Transaction was rejected by user.';
-    }
-    return error.reason || error.message || 'An unknown error occurred';
 }
 
 async function updateContractState() {
-    if (!contractInstance) return;
-    
+    if (!contractInstance || !provider) {
+        console.error('Contract or provider not initialized');
+        return;
+    }
     try {
-        const roundId = await contractInstance.currentRound();
-        const price = await contractInstance.TICKET_PRICE();
-        const roundInfo = await contractInstance.getRoundInfo(roundId);
+        const [roundId, price, info, blockNumber] = await Promise.all([
+            contractInstance.currentRound(),
+            contractInstance.TICKET_PRICE(),
+            contractInstance.getRoundInfo(await contractInstance.currentRound()),
+            provider.getBlockNumber()
+        ]);
         
-        currentRound.set({
-            id: roundId,
-            endBlock: roundInfo[0],
-            ticketCount: roundInfo[1],
-            winningIndex: roundInfo[2],
-            prizePool: roundInfo[3],
-            isEnded: roundInfo[4]
-        });
-        
+        currentRoundId.set(roundId.toNumber());
         ticketPrice.set(ethers.utils.formatEther(price));
-    } catch (error: any) {
-        console.error('Failed to update contract state:', error);
+        roundInfo.set(info);
+
+        // Update block number in localStorage
+        window.localStorage.setItem('currentBlock', blockNumber.toString());
+    } catch (error) {
+        console.error('Error updating contract state:', error);
         errorMessage.set(formatError(error));
     }
 }
 
-function handleAccountsChanged(accounts: string[]) {
+async function handleAccountChange(accounts: string[]) {
     if (accounts.length === 0) {
-        disconnectWallet();
+        userAddress.set(null);
+        isConnected.set(false);
+        connectionType.set(null);
     } else {
-        initializeContract();
+        userAddress.set(accounts[0]);
+        await initializeContract();
     }
 }
 
-function handleChainChanged(_chainId: string) {
+function handleChainChange() {
     window.location.reload();
 }
 
 export function disconnectWallet() {
-    isConnected.set(false);
-    provider.set(null);
-    signer.set(null);
-    contract.set(null);
-    userAddress.set('');
-    currentRound.set(null);
-    ticketPrice.set('0');
-    isOwner.set(false);
     errorMessage.set('');
-    web3Provider = null;
+    userAddress.set(null);
+    currentRoundId.set(0);
+    ticketPrice.set('0');
+    roundInfo.set(null);
+    isOwner.set(false);
+    isConnected.set(false);
+    connectionType.set(null);
+    provider = null;
     contractInstance = null;
+    ttkoContract = null;
 }
 
 // Contract interaction functions
@@ -671,7 +175,9 @@ export async function startNewRound(durationBlocks: number) {
     if (!contractInstance) throw new Error('Contract not initialized');
     
     try {
-        const tx = await contractInstance.startNewRound(durationBlocks);
+        const tx = await contractInstance.startNewRound(durationBlocks, {
+            gasLimit: 500000  // Set appropriate gas limit
+        });
         await tx.wait();
         await updateContractState();
         return true;
@@ -683,11 +189,38 @@ export async function startNewRound(durationBlocks: number) {
 }
 
 export async function buyTicket(commitment: string) {
-    if (!contractInstance) throw new Error('Contract not initialized');
+    if (!contractInstance || !provider || !ttkoContract) {
+        throw new Error('Contracts not initialized');
+    }
     
     try {
-        const tx = await contractInstance.buyTicket(commitment);
+        const signer = provider.getSigner();
+        const userAddr = await signer.getAddress();
+        
+        // Get ticket price
+        const price = await contractInstance.TICKET_PRICE();
+        
+        // Check current allowance
+        const allowance = await ttkoContract.allowance(userAddr, contractAddress);
+        
+        // If allowance is insufficient, approve spending
+        if (allowance.lt(price)) {
+            console.log('Approving TTKO spend...');
+            const approveTx = await ttkoContract.approve(contractAddress, price, {
+                gasLimit: 100000
+            });
+            await approveTx.wait();
+            console.log('TTKO approved');
+        }
+        
+        // Buy ticket
+        console.log('Buying ticket...');
+        const tx = await contractInstance.buyTicket(commitment, {
+            gasLimit: 500000
+        });
         await tx.wait();
+        console.log('Ticket bought');
+        
         await updateContractState();
         return true;
     } catch (error: any) {
@@ -701,7 +234,9 @@ export async function endRound() {
     if (!contractInstance) throw new Error('Contract not initialized');
     
     try {
-        const tx = await contractInstance.endRound();
+        const tx = await contractInstance.endRound({
+            gasLimit: 500000
+        });
         await tx.wait();
         await updateContractState();
         return true;
@@ -712,70 +247,79 @@ export async function endRound() {
     }
 }
 
-export async function claimPrize(
-    roundId: number,
-    proof: { a: number[], b: number[][], c: number[], input: number[] }
-) {
-    if (!contractInstance) throw new Error('Contract not initialized');
-    
-    try {
-        const tx = await contractInstance.claimPrize(
-            roundId,
-            proof.a,
-            proof.b,
-            proof.c,
-            proof.input
-        );
-        await tx.wait();
-        await updateContractState();
-        return true;
-    } catch (error: any) {
-        console.error('Failed to claim prize:', error);
-        errorMessage.set(formatError(error));
-        return false;
+function formatError(error: any): string {
+    if (error?.code === 4001) {
+        return 'Transaction rejected by user';
     }
+    if (error?.code === 'INVALID_ARGUMENT') {
+        return 'Invalid input parameters';
+    }
+    if (error?.code === 'UNPREDICTABLE_GAS_LIMIT') {
+        return 'Transaction may fail - check your TTKO balance and approval';
+    }
+    if (error?.data?.message) {
+        return error.data.message;
+    }
+    if (error?.message) {
+        return error.message;
+    }
+    return 'An unexpected error occurred';
+}
+
+// Export contract instance getter
+export function getContractInstance(): TaikoLottery | null {
+    return contractInstance;
+}
+
+export async function updateRoundInfo(): Promise<void> {
+  try {
+    if (!contractInstance) {
+      throw new Error('Contract not initialized');
+    }
+    const currentRoundId = await contractInstance.currentRoundId();
+    const [endBlock, ticketCount, winningTicketIndex, prizePool, isActive, isFinished] = await contractInstance.getRoundInfo(currentRoundId);
+    
+    roundInfo.set({
+      endBlock: endBlock.toString(),
+      ticketCount: ticketCount.toString(),
+      winningTicketIndex: winningTicketIndex.toString(),
+      prizePool: prizePool.toString(),
+      isActive,
+      isFinished
+    });
+  } catch (error) {
+    console.error('Error updating round info:', error);
+    errorMessage.set(formatError(error));
+    roundInfo.set(null);
+  }
 }
 
 export async function connectWithPrivateKey(privateKey: string) {
-    try {
-        if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === '0x0000000000000000000000000000000000000000') {
-            throw new Error('Contract address not set or invalid');
-        }
-
-        // Create provider and wallet
-        web3Provider = new ethers.providers.JsonRpcProvider(RPC_URL);
-        
-        // Check network
-        const network = await web3Provider.getNetwork();
-        if (network.chainId !== 167009) {
-            throw new Error('RPC is not connected to Taiko Hekla testnet');
-        }
-        
-        const wallet = new ethers.Wallet(privateKey, web3Provider);
-        
-        // Create contract instance
-        contractInstance = new ethers.Contract(CONTRACT_ADDRESS, contractAbi, wallet) as TaikoLottery;
-
-        // Update stores
-        provider.set(web3Provider);
-        signer.set(wallet);
-        contract.set(contractInstance);
-        userAddress.set(wallet.address);
-        connectionType.set('privateKey');
-
-        // Check if user is contract owner
-        const ownerAddress = await contractInstance.owner();
-        isOwner.set(ownerAddress.toLowerCase() === wallet.address.toLowerCase());
-        
-        // Get contract state
-        await updateContractState();
-
-        isConnected.set(true);
-        errorMessage.set('');
-    } catch (error: any) {
-        console.error('Failed to connect with private key:', error);
-        isConnected.set(false);
-        errorMessage.set(formatError(error));
-        throw error;
+  try {
+    if (!contractAddress) {
+      throw new Error('Contract address not configured');
     }
+
+    provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+    const wallet = new ethers.Wallet(privateKey);
+    const signer = wallet.connect(provider);
+    
+    contractInstance = new ethers.Contract(
+      contractAddress,
+      contractAbi,
+      signer
+    ) as TaikoLottery;
+
+    userAddress.set(await signer.getAddress());
+    connectionType.set('privateKey');
+    
+    const owner = await contractInstance.owner();
+    isOwner.set(owner.toLowerCase() === (await signer.getAddress()).toLowerCase());
+
+    await updateRoundInfo();
+  } catch (error) {
+    console.error('Failed to connect with private key:', error);
+    errorMessage.set(error instanceof Error ? error.message : 'Failed to connect');
+    throw error;
+  }
 } 
